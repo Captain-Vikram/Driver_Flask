@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Google Drive Actions</title>
+</head>
+<body>
+    <h1>Google Drive Actions</h1>
+
+    <!-- Display flash messages if any -->
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <ul>
+          {% for message in messages %}
+            <li>{{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    <!-- Form to create a folder -->
+    <h2>Create a Folder</h2>
+    <form method="post" action="{{ url_for('drive_actions') }}">
+        <input type="hidden" name="action" value="create_folder">
+        <label for="folder_name">Folder Name:</label>
+        <input type="text" id="folder_name" name="folder_name" required>
+        <button type="submit">Create Folder</button>
+    </form>
+
+    <hr>
+
+    <!-- Form to upload a file -->
+    <h2>Upload a File</h2>
+    <form method="post" action="{{ url_for('drive_actions') }}" enctype="multipart/form-data">
+        <input type="hidden" name="action" value="upload_file">
+        <label for="file">Choose a File:</label>
+        <input type="file" id="file" name="file" required>
+        <br><br>
+        <label for="folder_id">Folder ID (optional):</label>
+        <input type="text" id="folder_id" name="folder_id">
+        <button type="submit">Upload File</button>
+    </form>
+</body>
+</html>
