@@ -25,6 +25,7 @@ def index():
 @app.route('/authorize')
 def authorize():
     """ Redirect the user to Google's OAuth 2.0 authorization page """
+    flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, scopes=SCOPES, redirect_uri=url_for('callback', _external=True))
     authorization_url, state = flow.authorization_url(
         access_type='offline',
         include_granted_scopes='true'
@@ -51,7 +52,7 @@ def callback():
         CLIENT_SECRETS_FILE,
         scopes=SCOPES,
         state=session['state'],
-        redirect_uri='http://localhost:5000/callback'
+        redirect_uri='http://127.0.0.1:5000/callback'
     )
 
     # ✅ Fetch OAuth token
@@ -76,6 +77,26 @@ def drive_actions():
         session.pop('credentials', None)
         return redirect(url_for('authorize'))
 
+    # Enhanced folder retrieval with pagination
+    folders = []
+    page_token = None
+    try:
+        while True:
+            results = drive_service.files().list(
+                q="mimeType='application/vnd.google-apps.folder'",
+                spaces='drive',
+                fields='nextPageToken, files(id, name, createdTime, webViewLink)',
+                pageToken=page_token
+            ).execute()
+            
+            folders.extend(results.get('files', []))
+            page_token = results.get('nextPageToken')
+            
+            if not page_token:
+                break
+    except Exception as e:
+        flash(f"Error retrieving folders: {str(e)}", "error")
+
     if request.method == 'POST':
         action = request.form.get('action')
         folder_id = request.form.get('folder_id')
@@ -83,42 +104,45 @@ def drive_actions():
         if action == 'create_folder':
             folder_name = request.form.get('folder_name')
             if folder_name:
-                file_metadata = {
-                    'name': folder_name,
-                    'mimeType': 'application/vnd.google-apps.folder'
-                }
-                folder = drive_service.files().create(body=file_metadata, fields='id').execute()
-                flash(f'Folder "{folder_name}" created successfully.')
-                folder_id = folder.get('id')
+                try:
+                    file_metadata = {
+                        'name': folder_name,
+                        'mimeType': 'application/vnd.google-apps.folder'
+                    }
+                    folder = drive_service.files().create(body=file_metadata, fields='id').execute()
+                    flash(f'Folder "{folder_name}" created successfully.')
+                except Exception as e:
+                    flash(f"Error creating folder: {str(e)}", "error")
 
         if action == 'upload_file':
-            file = request.files.get('file')  # ✅ Get file safely
+            file = request.files.get('file')
             
             if file:
-                file_path = os.path.join("uploads", file.filename)  # ✅ Save locally first
-                file.save(file_path)
-
-                # ✅ Use `with open(...)` to ensure file is closed before uploading
-                with open(file_path, "rb") as f:
-                    media = MediaFileUpload(file_path, mimetype=file.content_type)
-                    file_metadata = {'name': file.filename}
-                    if folder_id:
-                        file_metadata['parents'] = [folder_id]
-
-                    drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-
-                flash(f'File "{file.filename}" uploaded successfully.')
-
-                # ✅ Ensure file is closed before deleting
                 try:
-                    os.remove(file_path)  # Delete the local file
-                except PermissionError:
-                    flash(f'Could not delete temporary file: {file.filename}. It may be in use.', 'error')
+                    file_path = os.path.join("uploads", file.filename)
+                    file.save(file_path)
+
+                    with open(file_path, "rb") as f:
+                        media = MediaFileUpload(file_path, mimetype=file.content_type)
+                        file_metadata = {'name': file.filename}
+                        if folder_id:
+                            file_metadata['parents'] = [folder_id]
+
+                        drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+                    
+                    flash(f'File "{file.filename}" uploaded successfully.')
+                except Exception as e:
+                    flash(f"Error uploading file: {str(e)}", "error")
+                finally:
+                    try:
+                        os.remove(file_path)
+                    except Exception:
+                        pass
             else:
-                flash("No file was uploaded. Please select a file first.")
+                flash("No file was uploaded. Please select a file first.", "error")
 
     session['credentials'] = credentials_to_dict(credentials)
-    return render_template('drive_actions.html')
+    return render_template('drive_actions.html', folders=folders)
 
 def credentials_to_dict(credentials):
     """ Convert OAuth credentials to dictionary for session storage """
